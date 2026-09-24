@@ -83,10 +83,6 @@ The SQLite database is at `./data/bot.db`, so settings survive restarts and rebu
 IMAGE_TAG=edge docker compose up -d
 ```
 
-`latest` only exists once a `v*` tag has been released — until then, use `IMAGE_TAG=edge`.
-
-The package starts out private on GHCR. Either make it public in the package settings, or run `docker login ghcr.io` on the server first.
-
 ### Build locally instead
 
 To build from source instead of pulling from GHCR, add a `build: .` line under `bot:` in `compose.yml` (or an override file), then run `docker compose up -d --build`.
