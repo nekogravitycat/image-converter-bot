@@ -29,6 +29,8 @@ var migrations = []string{
 		PRIMARY KEY (guild_id, channel_id),
 		FOREIGN KEY (guild_id) REFERENCES guild_configs(guild_id) ON DELETE CASCADE
 	);`,
+	// 2: option to delete the user's original message once its attachments are converted.
+	`ALTER TABLE guild_configs ADD COLUMN delete_original INTEGER NOT NULL DEFAULT 0;`,
 }
 
 // Migrate brings the schema up to the latest version. It is safe to run repeatedly.

@@ -90,6 +90,10 @@ func Commands() []discord.ApplicationCommandCreate {
 				},
 				discord.ApplicationCommandOptionSubCommand{Name: "strip-metadata", Description: "Remove EXIF/GPS metadata from outputs",
 					Options: enabled("Strip metadata")},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "delete-original", Description: "Delete the user's original message after conversion",
+					Options: enabled("Delete the original message"),
+				},
 				discord.ApplicationCommandOptionSubCommand{Name: "reset", Description: "Restore default settings"},
 			},
 		},
@@ -214,6 +218,11 @@ func (b *Bot) runConfig(ctx context.Context, guildID snowflake.ID, path string, 
 		v := data.Bool("enabled")
 		return update(func(c *config.Config) { c.StripMetadata = v }, "Strip metadata "+onOff(v)+".")
 
+	case "delete-original":
+		v := data.Bool("enabled")
+		return update(func(c *config.Config) { c.DeleteOriginal = v },
+			"Delete original message after conversion "+onOff(v)+".")
+
 	case "reset":
 		m := ephemeral("Reset configuration?\nThis restores all default settings and **disables automatic conversion in every channel**.")
 		m.Components = []discord.LayoutComponent{discord.NewActionRow(
@@ -263,6 +272,7 @@ func configEmbed(cfg config.Config) discord.Embed {
 			{Name: "JPEG quality", Value: fmt.Sprint(cfg.JPEGQuality)},
 			{Name: "Preserve transparency", Value: enabledDisabled(cfg.PreserveAlpha)},
 			{Name: "Strip metadata", Value: enabledDisabled(cfg.StripMetadata)},
+			{Name: "Delete original message", Value: enabledDisabled(cfg.DeleteOriginal)},
 		},
 	}
 }

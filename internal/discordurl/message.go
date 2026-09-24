@@ -14,6 +14,12 @@ const RefreshButtonID = "image_refresh_url"
 
 const summaryPrefix = "Converted: "
 
+const fieldSep = " · "
+
+// expiryMarker identifies where the trailing expiry note starts on the first line, so
+// SummaryFromContent can strip it back off.
+const expiryMarker = fieldSep + "URL expires <t:"
+
 // Summary renders the first line of a result message, e.g.
 // "Converted: 3024×4032 → 1125×1500 · JPEG · 1.8 MiB".
 func Summary(inW, inH, outW, outH int, format string, size int) string {
@@ -33,29 +39,38 @@ func FormatSize(n int) string {
 }
 
 // ResultContent builds the full result message. The URL sits alone in a code block
-// so it can be selected and copied in VR. A zero expiresAt omits the expiry line.
+// so it can be selected and copied in VR. A zero expiresAt omits the expiry note.
 func ResultContent(summary, attachmentURL string, expiresAt time.Time) string {
 	var b strings.Builder
 	if summary != "" {
 		b.WriteString(summary)
-		b.WriteString("\n\n")
+	}
+	if !expiresAt.IsZero() {
+		if summary != "" {
+			b.WriteString(fieldSep)
+		}
+		fmt.Fprintf(&b, "URL expires <t:%d:R>", expiresAt.Unix())
+	}
+	if summary != "" || !expiresAt.IsZero() {
+		b.WriteString("\n")
 	}
 	b.WriteString("```\n")
 	b.WriteString(attachmentURL)
 	b.WriteString("\n```")
-	if !expiresAt.IsZero() {
-		fmt.Fprintf(&b, "\nURL expires <t:%d:R>", expiresAt.Unix())
-	}
 	return b.String()
 }
 
-// SummaryFromContent recovers the summary line from an existing result message.
+// SummaryFromContent recovers the summary line from an existing result message,
+// stripping the trailing expiry note if present.
 func SummaryFromContent(content string) string {
 	line, _, _ := strings.Cut(content, "\n")
-	if strings.HasPrefix(line, summaryPrefix) {
-		return line
+	if !strings.HasPrefix(line, summaryPrefix) {
+		return ""
 	}
-	return ""
+	if i := strings.Index(line, expiryMarker); i != -1 {
+		line = line[:i]
+	}
+	return line
 }
 
 // Components returns the action row holding the Refresh URL button.

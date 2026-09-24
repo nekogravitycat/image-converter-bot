@@ -21,10 +21,13 @@ import (
 type discordAPI interface {
 	CreateMessage(channelID snowflake.ID, messageCreate discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error)
 	UpdateMessage(channelID snowflake.ID, messageID snowflake.ID, messageUpdate discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error)
+	DeleteMessage(channelID snowflake.ID, messageID snowflake.ID, opts ...rest.RequestOpt) error
 	GetMessage(channelID snowflake.ID, messageID snowflake.ID, opts ...rest.RequestOpt) (*discord.Message, error)
 	GetInteractionResponse(applicationID snowflake.ID, interactionToken string, opts ...rest.RequestOpt) (*discord.Message, error)
 	UpdateInteractionResponse(applicationID snowflake.ID, interactionToken string, messageUpdate discord.MessageUpdate, opts ...rest.RequestOpt) (*discord.Message, error)
 	CreateFollowupMessage(applicationID snowflake.ID, interactionToken string, messageCreate discord.MessageCreate, opts ...rest.RequestOpt) (*discord.Message, error)
+	AddReaction(channelID snowflake.ID, messageID snowflake.ID, emoji string, opts ...rest.RequestOpt) error
+	RemoveOwnReaction(channelID snowflake.ID, messageID snowflake.ID, emoji string, opts ...rest.RequestOpt) error
 }
 
 type imageProcessor interface {
@@ -45,27 +48,29 @@ type Settings struct {
 
 // Bot handles gateway messages and interactions; conversions run on the job queue.
 type Bot struct {
-	api      discordAPI
-	configs  *config.Service
-	queue    jobQueue
-	proc     imageProcessor
-	http     *http.Client
-	allowURL func(*url.URL) bool // download host policy; tests swap in httptest servers
-	settings Settings
-	logger   *slog.Logger
+	api       discordAPI
+	configs   *config.Service
+	queue     jobQueue
+	proc      imageProcessor
+	http      *http.Client
+	allowURL  func(*url.URL) bool // download host policy; tests swap in httptest servers
+	settings  Settings
+	logger    *slog.Logger
+	reactions *reactionTracker
 }
 
 // New returns a Bot that talks to Discord through api and converts images with proc.
 func New(api discordAPI, configs *config.Service, queue jobQueue, proc imageProcessor, settings Settings, logger *slog.Logger) *Bot {
 	return &Bot{
-		api:      api,
-		configs:  configs,
-		queue:    queue,
-		proc:     proc,
-		http:     newDownloadClient(),
-		allowURL: isDiscordCDN,
-		settings: settings,
-		logger:   logger,
+		api:       api,
+		configs:   configs,
+		queue:     queue,
+		proc:      proc,
+		http:      newDownloadClient(),
+		allowURL:  isDiscordCDN,
+		settings:  settings,
+		logger:    logger,
+		reactions: newReactionTracker(),
 	}
 }
 

@@ -28,11 +28,16 @@ type fakeAPI struct {
 	updates            []discord.MessageUpdate
 	interactionUpdates []discord.MessageUpdate
 	followups          []discord.MessageCreate
+	deletes            []string // "channelID:messageID"
 
 	createFn            func(discord.MessageCreate) (*discord.Message, error)
 	getInteractionFn    func() (*discord.Message, error)
 	getMessageFn        func() (*discord.Message, error)
 	interactionUpdateFn func(discord.MessageUpdate) (*discord.Message, error)
+	deleteMessageFn     func() error
+
+	reactionsAdded   []string // "channelID:messageID:emoji"
+	reactionsRemoved []string
 
 	notify chan string // optional: receives the method name of each call
 }
@@ -94,6 +99,33 @@ func (f *fakeAPI) CreateFollowupMessage(_ snowflake.ID, _ string, m discord.Mess
 	f.followups = append(f.followups, m)
 	f.record("CreateFollowupMessage")
 	return &discord.Message{}, nil
+}
+
+func (f *fakeAPI) DeleteMessage(channelID, messageID snowflake.ID, _ ...rest.RequestOpt) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletes = append(f.deletes, channelID.String()+":"+messageID.String())
+	f.record("DeleteMessage")
+	if f.deleteMessageFn != nil {
+		return f.deleteMessageFn()
+	}
+	return nil
+}
+
+func (f *fakeAPI) AddReaction(channelID, messageID snowflake.ID, emoji string, _ ...rest.RequestOpt) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reactionsAdded = append(f.reactionsAdded, channelID.String()+":"+messageID.String()+":"+emoji)
+	f.record("AddReaction")
+	return nil
+}
+
+func (f *fakeAPI) RemoveOwnReaction(channelID, messageID snowflake.ID, emoji string, _ ...rest.RequestOpt) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reactionsRemoved = append(f.reactionsRemoved, channelID.String()+":"+messageID.String()+":"+emoji)
+	f.record("RemoveOwnReaction")
+	return nil
 }
 
 func (f *fakeAPI) callNames() []string {

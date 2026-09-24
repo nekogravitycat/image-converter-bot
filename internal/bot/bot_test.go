@@ -121,8 +121,13 @@ func TestQueueFullRepliesOnce(t *testing.T) {
 		t.Fatal("no queue-full reply sent")
 	}
 	time.Sleep(50 * time.Millisecond)
-	if n := len(env.api.callNames()); n != 1 || env.api.creates[0].Content != msgQueueFull {
-		t.Fatalf("calls = %v, want a single queue-full reply", env.api.callNames())
+	// One attachment fit in the queue (so its "queued" reaction was added) and one reply
+	// was sent for the two that didn't.
+	if n := len(env.api.callNames()); n != 2 || env.api.creates[0].Content != msgQueueFull {
+		t.Fatalf("calls = %v, want a queue-full reply plus one reaction", env.api.callNames())
+	}
+	if len(env.api.reactionsAdded) != 1 || env.api.reactionsAdded[0] != channelID.String()+":500:"+emojiQueued {
+		t.Fatalf("reactionsAdded = %v", env.api.reactionsAdded)
 	}
 }
 
@@ -160,8 +165,18 @@ func TestAutoJobUploadsThenEditsInURL(t *testing.T) {
 	if env.proc.opts.MaxWidth != config.DefaultMaxWidth || !env.proc.opts.StripMetadata {
 		t.Fatalf("processor got wrong options: %+v", env.proc.opts)
 	}
-	if got := env.api.callNames(); strings.Join(got, ",") != "CreateMessage,UpdateMessage" {
-		t.Fatalf("calls = %v", got)
+	// Reaction lifecycle: queued on receipt, swapped to processing once the job starts,
+	// cleared once it finishes -- interleaved with the usual reply/edit calls.
+	wantCalls := "AddReaction,AddReaction,RemoveOwnReaction,CreateMessage,UpdateMessage,RemoveOwnReaction"
+	if got := env.api.callNames(); strings.Join(got, ",") != wantCalls {
+		t.Fatalf("calls = %v, want %s", got, wantCalls)
+	}
+	msg500 := channelID.String() + ":500:"
+	if got := env.api.reactionsAdded; len(got) != 2 || got[0] != msg500+emojiQueued || got[1] != msg500+emojiProcessing {
+		t.Fatalf("reactionsAdded = %v", got)
+	}
+	if got := env.api.reactionsRemoved; len(got) != 2 || got[0] != msg500+emojiQueued || got[1] != msg500+emojiProcessing {
+		t.Fatalf("reactionsRemoved = %v", got)
 	}
 	create := env.api.creates[0]
 	if len(create.Files) != 1 || !strings.HasPrefix(create.Files[0].Name, "converted-") || !strings.HasSuffix(create.Files[0].Name, ".jpg") {
@@ -180,6 +195,86 @@ func TestAutoJobUploadsThenEditsInURL(t *testing.T) {
 	}
 	if update.Files != nil || update.Attachments != nil {
 		t.Fatal("finalize edit must not touch attachments")
+	}
+}
+
+func TestAutoJobDeletesOriginalWhenConfigured(t *testing.T) {
+	env := newTestEnv(t)
+	env.allow(t, channelID)
+	if _, err := env.configs.Update(context.Background(), guildID, func(c *config.Config) { c.DeleteOriginal = true }); err != nil {
+		t.Fatal(err)
+	}
+	srv := cdnServer(t, []byte("source-bytes"))
+	env.bot.allowURL = func(*url.URL) bool { return true }
+	env.proc.result = &imageproc.Result{Data: []byte("jpeg"), Format: imageproc.FormatJPEG}
+	env.api.createFn = func(m discord.MessageCreate) (*discord.Message, error) {
+		return &discord.Message{ID: 900, Content: m.Content, Attachments: []discord.Attachment{{ID: 77, URL: srv.URL}}}, nil
+	}
+
+	env.bot.handleMessage(context.Background(), guildID, sourceMessage(imageAttachment(1, "a.jpg", srv.URL)))
+	env.queue.jobs[0](context.Background())
+
+	create := env.api.creates[0]
+	if create.MessageReference != nil {
+		t.Fatal("result must not be a reply when the original will be deleted")
+	}
+	if len(env.api.deletes) != 1 || env.api.deletes[0] != channelID.String()+":500" {
+		t.Fatalf("deletes = %v, want the source message deleted once", env.api.deletes)
+	}
+}
+
+func TestAutoJobKeepsOriginalOnFailureEvenWhenConfigured(t *testing.T) {
+	env := newTestEnv(t)
+	env.allow(t, channelID)
+	if _, err := env.configs.Update(context.Background(), guildID, func(c *config.Config) { c.DeleteOriginal = true }); err != nil {
+		t.Fatal(err)
+	}
+	srv := cdnServer(t, []byte("junk"))
+	env.bot.allowURL = func(*url.URL) bool { return true }
+	env.proc.err = fmt.Errorf("wrapped: %w", imageproc.ErrUnsupportedFormat)
+
+	env.bot.handleMessage(context.Background(), guildID, sourceMessage(imageAttachment(1, "a.jpg", srv.URL)))
+	env.queue.jobs[0](context.Background())
+
+	if len(env.api.deletes) != 0 {
+		t.Fatal("original message deleted despite a failed conversion")
+	}
+	if len(env.api.creates) != 1 || env.api.creates[0].MessageReference == nil {
+		t.Fatal("error reply must still be a reply to the source message")
+	}
+}
+
+func TestReactionsClearOnlyAfterAllAttachmentsDone(t *testing.T) {
+	env := newTestEnv(t)
+	env.allow(t, channelID)
+	srv := cdnServer(t, []byte("bytes"))
+	env.bot.allowURL = func(*url.URL) bool { return true }
+	env.proc.result = &imageproc.Result{Data: []byte("jpeg"), Format: imageproc.FormatJPEG}
+
+	env.bot.handleMessage(context.Background(), guildID, sourceMessage(
+		imageAttachment(1, "a.jpg", srv.URL), imageAttachment(2, "b.jpg", srv.URL),
+	))
+	if len(env.queue.jobs) != 2 {
+		t.Fatalf("queued %d jobs, want 2", len(env.queue.jobs))
+	}
+	msg500 := channelID.String() + ":500:"
+	if got := env.api.reactionsAdded; len(got) != 1 || got[0] != msg500+emojiQueued {
+		t.Fatalf("reactionsAdded after queueing = %v", got)
+	}
+
+	env.queue.jobs[0](context.Background())
+	// The first job running swaps queued -> processing (removing ⏳), but the processing
+	// reaction itself must survive since the second attachment is still in flight.
+	if got := env.api.reactionsRemoved; len(got) != 1 || got[0] != msg500+emojiQueued {
+		t.Fatalf("reactionsRemoved after first job started = %v", got)
+	}
+	if got := env.api.reactionsAdded; len(got) != 2 || got[1] != msg500+emojiProcessing {
+		t.Fatalf("reactionsAdded after first job started = %v", got)
+	}
+
+	env.queue.jobs[1](context.Background())
+	if got := env.api.reactionsRemoved; len(got) != 2 || got[1] != msg500+emojiProcessing {
+		t.Fatalf("reactionsRemoved after both attachments finished = %v", got)
 	}
 }
 
@@ -375,8 +470,9 @@ func TestConfigCommands(t *testing.T) {
 	}
 	run("preserve-alpha", nil, map[string]any{"enabled": false})
 	run("strip-metadata", nil, map[string]any{"enabled": false})
+	run("delete-original", nil, map[string]any{"enabled": true})
 	cfg, _ := env.configs.Get(ctx, guildID)
-	if cfg.PreserveAlpha || cfg.StripMetadata {
+	if cfg.PreserveAlpha || cfg.StripMetadata || !cfg.DeleteOriginal {
 		t.Fatalf("toggles not applied: %+v", cfg)
 	}
 

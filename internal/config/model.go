@@ -32,6 +32,7 @@ type Config struct {
 	JPEGQuality      int
 	PreserveAlpha    bool
 	StripMetadata    bool
+	DeleteOriginal   bool           // delete the user's source message once every attachment on it is converted
 	Channels         []snowflake.ID // sorted ascending
 }
 

@@ -79,10 +79,10 @@ func (s *Service) Update(ctx context.Context, guildID snowflake.ID, mutate func(
 	}
 	if _, err := s.db.ExecContext(ctx, `UPDATE guild_configs SET
 			max_width = ?, max_height = ?, max_file_size_bytes = ?, jpeg_quality = ?,
-			preserve_alpha = ?, strip_metadata = ?, updated_at = ?
+			preserve_alpha = ?, strip_metadata = ?, delete_original = ?, updated_at = ?
 		WHERE guild_id = ?`,
 		cfg.MaxWidth, cfg.MaxHeight, maxSize, cfg.JPEGQuality,
-		boolToInt(cfg.PreserveAlpha), boolToInt(cfg.StripMetadata), s.now().Unix(),
+		boolToInt(cfg.PreserveAlpha), boolToInt(cfg.StripMetadata), boolToInt(cfg.DeleteOriginal), s.now().Unix(),
 		guildKey(guildID)); err != nil {
 		return Config{}, fmt.Errorf("update guild config: %w", err)
 	}
@@ -163,10 +163,10 @@ type execer interface {
 func insertDefault(ctx context.Context, db execer, guildID snowflake.ID, now time.Time) error {
 	d := Default(guildID)
 	if _, err := db.ExecContext(ctx, `INSERT OR IGNORE INTO guild_configs
-			(guild_id, max_width, max_height, max_file_size_bytes, jpeg_quality, preserve_alpha, strip_metadata, created_at, updated_at)
-		VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+			(guild_id, max_width, max_height, max_file_size_bytes, jpeg_quality, preserve_alpha, strip_metadata, delete_original, created_at, updated_at)
+		VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
 		guildKey(guildID), d.MaxWidth, d.MaxHeight, d.JPEGQuality,
-		boolToInt(d.PreserveAlpha), boolToInt(d.StripMetadata), now.Unix(), now.Unix()); err != nil {
+		boolToInt(d.PreserveAlpha), boolToInt(d.StripMetadata), boolToInt(d.DeleteOriginal), now.Unix(), now.Unix()); err != nil {
 		return fmt.Errorf("insert default guild config: %w", err)
 	}
 	return nil
@@ -187,12 +187,12 @@ func (s *Service) loadOrCreateLocked(ctx context.Context, guildID snowflake.ID) 
 func (s *Service) reloadLocked(ctx context.Context, guildID snowflake.ID) (Config, error) {
 	cfg := Config{GuildID: guildID}
 	var (
-		maxSize                      sql.NullInt64
-		preserveAlpha, stripMetadata int
+		maxSize                                      sql.NullInt64
+		preserveAlpha, stripMetadata, deleteOriginal int
 	)
-	err := s.db.QueryRowContext(ctx, `SELECT max_width, max_height, max_file_size_bytes, jpeg_quality, preserve_alpha, strip_metadata
+	err := s.db.QueryRowContext(ctx, `SELECT max_width, max_height, max_file_size_bytes, jpeg_quality, preserve_alpha, strip_metadata, delete_original
 		FROM guild_configs WHERE guild_id = ?`, guildKey(guildID)).
-		Scan(&cfg.MaxWidth, &cfg.MaxHeight, &maxSize, &cfg.JPEGQuality, &preserveAlpha, &stripMetadata)
+		Scan(&cfg.MaxWidth, &cfg.MaxHeight, &maxSize, &cfg.JPEGQuality, &preserveAlpha, &stripMetadata, &deleteOriginal)
 	if errors.Is(err, sql.ErrNoRows) {
 		delete(s.cache, guildID)
 		return Config{}, fmt.Errorf("guild config %s not found", guildID)
@@ -206,6 +206,7 @@ func (s *Service) reloadLocked(ctx context.Context, guildID snowflake.ID) (Confi
 	}
 	cfg.PreserveAlpha = preserveAlpha != 0
 	cfg.StripMetadata = stripMetadata != 0
+	cfg.DeleteOriginal = deleteOriginal != 0
 
 	rows, err := s.db.QueryContext(ctx, `SELECT channel_id FROM allowed_channels WHERE guild_id = ?`, guildKey(guildID))
 	if err != nil {

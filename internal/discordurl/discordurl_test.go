@@ -44,7 +44,7 @@ func TestResultContentRoundTrip(t *testing.T) {
 	}
 	url := "https://cdn.discordapp.com/attachments/1/2/converted-a8f31c.jpg?ex=6ABCD123"
 	content := ResultContent(summary, url, time.Unix(1790232540, 0))
-	want := summary + "\n\n```\n" + url + "\n```\nURL expires <t:1790232540:R>"
+	want := summary + " · URL expires <t:1790232540:R>\n```\n" + url + "\n```"
 	if content != want {
 		t.Fatalf("content =\n%s\nwant\n%s", content, want)
 	}

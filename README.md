@@ -35,10 +35,11 @@ What the bot does to every image:
    - Under **Privileged Gateway Intents**, turn on **Message Content Intent**. The bot needs it to see attachments on other people's messages.
 3. Under **OAuth2 → URL Generator**:
    - Scopes: `bot`, `applications.commands`
-   - Bot permissions: **View Channels**, **Send Messages**, **Send Messages in Threads**, **Attach Files**, **Read Message History**, **Use Application Commands**
+   - Bot permissions: **View Channels**, **Send Messages**, **Send Messages in Threads**, **Attach Files**, **Read Message History**, **Add Reactions**, **Use Application Commands**
+   - Also grant **Manage Messages** if you plan to enable `/config delete-original` (see below) — it's required for the bot to delete users' original messages. Skip it otherwise.
    - Open the generated URL and invite the bot to your server.
 
-The bot doesn't need Administrator, Manage Messages or Manage Channels. It never deletes your original messages.
+The bot doesn't need Administrator or Manage Channels. It only deletes your original messages if `/config delete-original` is turned on (default off); without **Manage Messages**, enabling that setting will fail to delete messages (logged as a warning, everything else keeps working).
 
 Gateway intents used: `GUILDS`, `GUILD_MESSAGES` and `MESSAGE_CONTENT` (privileged).
 
@@ -112,6 +113,7 @@ docker build --target test .      # runs go vet + the full test suite against re
 | `/config jpeg-quality quality:<1–100>` | JPEG quality (default 90) |
 | `/config preserve-alpha enabled:<true/false>` | Keep transparency as PNG (default on) |
 | `/config strip-metadata enabled:<true/false>` | Remove EXIF/GPS metadata (default on) |
+| `/config delete-original enabled:<true/false>` | Delete the user's original message after conversion (default off); when on, the result is posted as a standalone message instead of a reply |
 | `/config reset` | Restore the defaults and clear the channel list (asks for confirmation) |
 
 Every `/config` reply is visible only to you. A new server starts with no enabled channels, so the bot does nothing until an admin runs `/config channel add`.
