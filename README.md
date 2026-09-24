@@ -69,21 +69,27 @@ Guild settings such as dimensions and quality aren't environment variables. You 
 ```sh
 mkdir -p data
 sudo chown 10001:10001 data   # the container runs as non-root UID 10001
-docker compose up -d --build
+docker compose up -d
 docker compose logs -f
 ```
 
 The SQLite database is at `./data/bot.db`, so settings survive restarts and rebuilds. `docker compose stop` sends SIGTERM. The bot then stops taking new work, lets running conversions finish (up to 20 s), and closes the database.
 
-### Use the prebuilt image
+### Prebuilt image
 
-CI publishes images to GHCR. Every push to `main` updates `edge` and a `sha-<short>` tag. A `v1.2.3` git tag publishes `1.2.3`, `1.2` and `latest`. To use one, replace `build: .` in `compose.yml` with:
+`compose.yml` pulls `ghcr.io/nekogravitycat/image-converter-bot:latest` by default — no local build needed, just `docker compose pull && docker compose up -d`. CI publishes images to GHCR: a `v1.2.3` git tag publishes `1.2.3`, `1.2` and `latest`; every push to `main` updates `edge` and a `sha-<short>` tag. Pick a different tag with `IMAGE_TAG` (e.g. in `.env`):
 
-```yaml
-    image: ghcr.io/nekogravitycat/image-converter-bot:edge
+```sh
+IMAGE_TAG=edge docker compose up -d
 ```
 
+`latest` only exists once a `v*` tag has been released — until then, use `IMAGE_TAG=edge`.
+
 The package starts out private on GHCR. Either make it public in the package settings, or run `docker login ghcr.io` on the server first.
+
+### Build locally instead
+
+To build from source instead of pulling from GHCR, add a `build: .` line under `bot:` in `compose.yml` (or an override file), then run `docker compose up -d --build`.
 
 ### Build the image alone
 

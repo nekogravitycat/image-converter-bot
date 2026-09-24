@@ -1,7 +1,6 @@
 services:
   bot:
-    build: .
-    image: image-converter-bot:latest
+    image: ghcr.io/nekogravitycat/image-converter-bot:${IMAGE_TAG:-latest}
     restart: unless-stopped
     # Give in-flight conversions time to finish on `docker compose stop` (the bot waits up to 20s).
     stop_grace_period: 30s
