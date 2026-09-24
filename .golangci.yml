@@ -1,0 +1,25 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose      # an unclosed body leaks a connection per download
+    - errorlint      # keeps %w wrapping intact so errors.Is/As behave
+    - misspell
+    - unconvert
+    - revive
+
+  exclusions:
+    rules:
+      # Tests report through t.Errorf, so the production error-handling
+      # convention does not apply to them.
+      - path: _test\.go
+        linters: [errcheck]
+
+formatters:
+  enable:
+    - gofmt
